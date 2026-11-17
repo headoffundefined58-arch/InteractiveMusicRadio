@@ -1,0 +1,15 @@
+build/
+dist/
+*.dll
+*.pdb
+*.obj
+*.lib
+*.exp
+*.ilk
+*.pdb
+__pycache__/
+*.pyc
+_msvc_env.bat
+*.log
+t.i
+.vs/

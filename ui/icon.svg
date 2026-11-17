@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" width="240" height="240" role="img" aria-label="Interactive Music Radio flat station icon">
+  <defs>
+    <linearGradient id="teal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3ee6b4"/>
+      <stop offset="1" stop-color="#17a886"/>
+    </linearGradient>
+  </defs>
+
+  <!-- flat radio receiver body -->
+  <rect x="36" y="88" width="168" height="104" rx="18" fill="#0f2b2b" stroke="#17a886" stroke-width="3"/>
+  <!-- speaker grille -->
+  <g fill="#3ee6b4" opacity="0.85">
+    <rect x="52" y="104" width="72" height="8" rx="4"/>
+    <rect x="52" y="120" width="72" height="8" rx="4"/>
+    <rect x="52" y="136" width="72" height="8" rx="4"/>
+    <rect x="52" y="152" width="72" height="8" rx="4"/>
+  </g>
+  <!-- dial / tuner -->
+  <circle cx="156" cy="140" r="24" fill="#061616" stroke="url(#teal)" stroke-width="4"/>
+  <line x1="156" y1="140" x2="172" y2="124" stroke="#3ee6b4" stroke-width="4" stroke-linecap="round"/>
+  <!-- antenna -->
+  <line x1="196" y1="88" x2="212" y2="44" stroke="url(#teal)" stroke-width="5" stroke-linecap="round"/>
+  <circle cx="214" cy="40" r="7" fill="#3ee6b4"/>
+  <!-- broadcast waves -->
+  <g fill="none" stroke="#3ee6b4" stroke-width="5" stroke-linecap="round" opacity="0.9">
+    <path d="M 52 60 A 28 28 0 0 1 92 60"/>
+    <path d="M 40 48 A 46 46 0 0 1 104 48"/>
+  </g>
+</svg>

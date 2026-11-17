@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Interactive Music Radio</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app" id="app">
+    <header class="header" id="dragHandle" title="按住拖动面板">
+      <div class="brand">
+        <img src="logo.svg" alt="IMR" class="brand-logo" />
+        <div class="brand-text">
+          <h1 class="brand-title">Interactive Music Radio</h1>
+          <p class="brand-sub">交互式音乐电台 · 音乐软件 / 音乐网站</p>
+        </div>
+      </div>
+      <div class="header-right">
+        <div class="link-badge" id="linkBadge">
+          <span class="dot"></span>
+          <span id="linkLabel">未连接</span>
+        </div>
+        <button class="icon-btn" id="closeBtn" title="关闭电台">✕</button>
+      </div>
+    </header>
+
+    <main class="main">
+      <!-- 左：桌面版 -->
+      <section class="panel sources">
+        <div class="panel-head">
+          <h2>桌面版</h2>
+          <span class="panel-sub">本机音乐软件 · 后台运行也能控制</span>
+        </div>
+        <ul class="source-list" id="desktopList"></ul>
+      </section>
+
+      <!-- 右：网页版 -->
+      <section class="panel sources">
+        <div class="panel-head">
+          <h2>网页版</h2>
+          <span class="panel-sub">同一服务的网页播放器</span>
+        </div>
+        <ul class="source-list" id="webList"></ul>
+      </section>
+    </main>
+
+    <section class="panel control">
+      <div class="now-playing">
+        <div class="np-main">
+          <div class="np-title" id="npTitle">尚未接入音乐源</div>
+          <div class="np-meta" id="npMeta">点击上方任意一个音源开始</div>
+        </div>
+        <div class="np-bar" id="npBar" title="点击或拖动跳转播放进度">
+          <span id="npProgress"></span>
+          <i id="npThumb"></i>
+        </div>
+        <div class="np-times">
+          <span id="npElapsed">0:00</span>
+          <span id="npDuration">0:00</span>
+        </div>
+      </div>
+
+      <div class="control-row">
+        <div class="transport">
+          <button class="round" id="prevBtn" title="上一曲">
+            <svg viewBox="0 0 24 24"><path d="M6 5h2v14H6zM20 5v14L9 12z"/></svg>
+          </button>
+          <button class="round play" id="playBtn" title="播放 / 暂停">
+            <svg viewBox="0 0 24 24" id="playIcon"><path d="M8 5v14l11-7z"/></svg>
+          </button>
+          <button class="round" id="nextBtn" title="下一曲">
+            <svg viewBox="0 0 24 24"><path d="M16 5h2v14h-2zM4 5l11 7-11 7z"/></svg>
+          </button>
+        </div>
+
+        <div class="tools">
+          <div class="mode-wrap">
+            <button class="chip mode-chip" id="modeBtn" title="播放模式">
+              <svg class="mode-ico" id="modeIcon" viewBox="0 0 24 24" aria-hidden="true">
+                <path d="M4 12h15M15 8l4 4-4 4"/>
+              </svg>
+              <span id="modeText">播放模式</span>
+            </button>
+            <div class="mode-menu" id="modeMenu" hidden>
+              <button class="mode-item" data-mode="0">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M3 7h3.6l11 10H21M3 17h3.6l3.1-3.4M14.2 7H21"/>
+                  <path d="M18 4l3 3-3 3M18 14l3 3-3 3"/>
+                </svg>
+                <span>随机播放</span>
+              </button>
+              <button class="mode-item" data-mode="1">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h14M14 7l5 5-5 5"/></svg>
+                <span>顺序播放</span>
+              </button>
+              <button class="mode-item" data-mode="2">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M7 8h10a4 4 0 014 4v1a4 4 0 01-4 4H7a4 4 0 01-4-4v-1a4 4 0 014-4z"/>
+                  <path d="M12 11v4M12 11l-1.4 1.2"/>
+                </svg>
+                <span>单曲循环</span>
+              </button>
+              <button class="mode-item" data-mode="3">
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <path d="M7 8h10a4 4 0 014 4v1a4 4 0 01-4 4H7a4 4 0 01-4-4v-1a4 4 0 014-4z"/>
+                  <path d="M4 9l3-3 3 3M20 16l-3 3-3-3"/>
+                </svg>
+                <span>列表循环</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="control-row tight">
+        <div class="volume-row">
+          <label for="volumeSlider">音量</label>
+          <input type="range" id="volumeSlider" min="0" max="100" value="100" />
+          <span class="volume-value" id="volumeValue">100%</span>
+        </div>
+      </div>
+
+      <div class="control-row settings">
+        <label class="switch" title="开关本项目自制的桌面歌词">
+          <input type="checkbox" id="lyricsSwitch" />
+          <span class="slider"></span>
+          <span class="switch-label">桌面歌词</span>
+        </label>
+        <span class="kind-tag" id="lyricKind">桌面版</span>
+        <label class="switch" title="解锁后可用鼠标拖动歌词窗口；锁定后点击穿透">
+          <input type="checkbox" id="lyricsLockSwitch" checked />
+          <span class="slider"></span>
+          <span class="switch-label">锁定</span>
+        </label>
+        <div class="calib" title="歌词与歌曲有偏差时微调，每次 250 毫秒">
+          <span>歌词校准</span>
+          <button class="mini" id="offsetMinus" title="歌词提前 250ms">−</button>
+          <span class="calib-value" id="offsetValue">+0.00s</span>
+          <button class="mini" id="offsetPlus" title="歌词延后 250ms">+</button>
+        </div>
+        <div class="hotkey-wrap">
+          <button class="chip hotkey-btn" id="hotkeyBtn" title="点击后按下想绑定的按键">⌨ 热键：F10</button>
+          <button class="mini" id="hotkeyReset" title="恢复默认 F10">↺</button>
+        </div>
+      </div>
+    </section>
+
+    <footer class="footer">
+      <span>拖动标题栏移动面板 · 拖动进度条跳转 · 自定义热键开关 · <b>Esc</b> 关闭 · 退出游戏自动断开 · 与 CMS 联动接管</span>
+    </footer>
+  </div>
+
+  <script src="radio.js"></script>
+</body>
+</html>

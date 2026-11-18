@@ -357,7 +357,8 @@ static void TestSubtitleStabilizer()
 	CHECK(stab.Published() == "第一次");
 
 	CHECK(stab.Feed("误读").empty());         // new candidate, single frame
-	CHECK(stab.Feed("第二次") == "第二次");   // a different candidate wins after 2
+	CHECK(stab.Feed("第二次").empty());       // competing candidate, single frame
+	CHECK(stab.Feed("第二次") == "第二次");   // second identical hit wins after 2
 	CHECK(stab.Published() == "第二次");
 
 	stab.Miss();                               // a gap does not erase published

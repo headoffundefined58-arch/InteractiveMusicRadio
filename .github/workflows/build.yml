@@ -12,7 +12,12 @@ permissions:
   contents: read
 
 env:
-  COMMONLIB_REF: v3.7.0
+  # MUST match the CommonLibSSE-NG version whose REL::ID set matches the
+  # Address Library installed on the target machine. v3.7.0 merged upstream
+  # reverse-engineering updates -> new IDs -> "Failed to find the id within
+  # the address library" on older versionlib-*.bin. v3.6.0 is the version the
+  # known-good 2.2 build used. Never bump without re-validating in game.
+  COMMONLIB_REF: v3.6.0
 
 jobs:
   build:
@@ -29,6 +34,18 @@ jobs:
           repository: CharmedBaryon/CommonLibSSE-NG
           ref: ${{ env.COMMONLIB_REF }}
           path: CommonLibSSE-NG
+
+      # The REL::ID numbers compiled into the DLL must exist in the target
+      # machine's versionlib-*.bin. Record the exact library version so a
+      # mismatch is visible in the run summary / artifact name.
+      - name: Record CommonLibSSE-NG version
+        shell: pwsh
+        run: |
+          $m = Select-String -Path 'CommonLibSSE-NG/CMakeLists.txt' -Pattern 'project\(\s*CommonLibSSE\s+VERSION\s+([0-9.]+)' | Select-Object -First 1
+          if (-not $m) { throw "Cannot read CommonLibSSE version from CMakeLists.txt" }
+          $ver = $m.Matches[0].Groups[1].Value
+          "COMMONLIB_VERSION=$ver" | Add-Content $env:GITHUB_ENV
+          "### Build inputs`n- CommonLibSSE-NG: $ver (${{ env.COMMONLIB_REF }})`n- REL::ID set must match the target machine's versionlib-*.bin`n" | Add-Content $env:GITHUB_STEP_SUMMARY
 
       # Use the vcpkg preinstalled on windows-2022 (VCPKG_INSTALLATION_ROOT).
       # It is bootstrapped and its binary cache works, unlike the pinned 2022
@@ -102,7 +119,7 @@ jobs:
       - name: Upload DLLs
         uses: actions/upload-artifact@v4
         with:
-          name: InteractiveMusicRadio-2.3-dlls
+          name: InteractiveMusicRadio-2.3-clib${{ env.COMMONLIB_VERSION }}
           path: |
             IMR/build/Release/InteractiveMusicRadio.dll
             IMR/build/Release/InteractiveMusicRadio_en.dll

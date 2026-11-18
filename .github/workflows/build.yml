@@ -15,9 +15,7 @@ env:
   # Pinned to the same vcpkg revision CommonLibSSE-NG v3.7.0's own CI uses.
   VCPKG_COMMIT: 01b29f6d8212bc845da64773b18665d682f5ab66
   COMMONLIB_REF: v3.7.0
-  # This pinned vcpkg predates the x-gha cache provider that run-vcpkg injects;
-  # setting it up front stops the action overriding it and fixes "unknown
-  # binary provider type: x-gha".
+  # This pinned vcpkg predates the x-gha cache provider that run-vcpkg injects.
   VCPKG_BINARY_SOURCES: clear
 
 jobs:
@@ -41,8 +39,17 @@ jobs:
         uses: lukka/run-vcpkg@v11
         with:
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
-          # No runVcpkgInstall: the CMake toolchain below installs the manifest
-          # (IMR/vcpkg.json) into the build tree automatically in manifest mode.
+
+      # Explicit classic-mode install.  Errors from this step land in the job
+      # annotations, which is far easier to diagnose than CMake's opaque
+      # manifest-mode "vcpkg install failed".
+      - name: Install dependencies
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_ROOT/vcpkg.exe" install `
+            fmt:x64-windows spdlog:x64-windows rapidcsv:x64-windows `
+            --triplet x64-windows
+          if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed" }
 
       - name: Configure
         shell: pwsh
@@ -53,6 +60,7 @@ jobs:
             -G "Visual Studio 17 2022" -A x64 `
             -DCMAKE_TOOLCHAIN_FILE="$toolchain" `
             -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -DVCPKG_MANIFEST_MODE=OFF `
             -DIMR_COMMONLIB_DIR="${{ github.workspace }}/CommonLibSSE-NG" `
             -DIMR_DEPS_DIR=""
 

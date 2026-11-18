@@ -16,12 +16,12 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
-
+#include <inspectable.h>   // ABI IInspectable, used by the D3D11 device bridge
 // The C capture-interop header must come before the C++/WinRT projection.
-#include <inspectable.h>   // ABI IInspectable, used by the D3D11 bridge below
 // We deliberately do NOT include windows.graphics.directx.direct3d11.interop.h:
-// its COM declarations clash with the C++/WinRT projection; instead the single
-// function we need is declared below (the documented C ABI, exported by d3d11).
+// its COM declarations clash with the C++/WinRT projection.  Instead we use
+// Kenny Kerr's minimal C++/WinRT-friendly shim: the documented C ABI function
+// plus the one COM interface we need, both declared below.
 #include <windows.graphics.capture.interop.h>
 #include <winrt/base.h>
 #include <winrt/Windows.Foundation.h>
@@ -62,6 +62,16 @@ namespace WSS = winrt::Windows::Storage::Streams;
 // Exported by d3d11.dll (see windows.graphics.directx.direct3d11.interop.h).
 extern "C" HRESULT WINAPI CreateDirect3D11DeviceFromDXGIDevice(
 	::IDXGIDevice* a_dxgiDevice, ::IInspectable** a_graphicsDevice);
+
+// C++/WinRT-friendly declaration of the DXGI interface accessor.  The SDK
+// interop header declares this as a MIDL_INTERFACE that collides with the
+// C++/WinRT projection; this plain COM declaration is ABI-identical and works
+// with surface.as<>().  IID from windows.graphics.directx.direct3d11.interop.h.
+struct __declspec(uuid("A9B3D012-3DF2-4EE3-B8D1-8695F457D3C1"))
+	IDirect3DDxgiInterfaceAccess : ::IUnknown
+{
+	virtual HRESULT WINAPI GetInterface(GUID const& a_id, void** a_object) = 0;
+};
 
 struct WindowPick {
 	HWND   hwnd = nullptr;
@@ -303,7 +313,7 @@ struct VideoSubtitle::Impl {
 		if (!surface) return {};
 
 		winrt::com_ptr<ID3D11Texture2D> tex;
-		auto access = surface.as<WDX3D::IDirect3DDxgiInterfaceAccess>();
+		auto access = surface.as<IDirect3DDxgiInterfaceAccess>();
 		winrt::check_hresult(access->GetInterface(
 			winrt::guid_of<ID3D11Texture2D>(), tex.put_void()));
 		if (!tex) return {};

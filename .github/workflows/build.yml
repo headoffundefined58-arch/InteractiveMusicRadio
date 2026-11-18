@@ -65,13 +65,21 @@ jobs:
       # Use the vcpkg preinstalled on windows-2022 (VCPKG_INSTALLATION_ROOT).
       # It is bootstrapped and its binary cache works, unlike the pinned 2022
       # revision which run-vcpkg kept forcing an unsupported x-gha provider on.
+      #
+      # x64-windows-static-md = VCPKG_LIBRARY_LINKAGE=static + CRT=/MD.
+      # The plugin sets CMAKE_MSVC_RUNTIME_LIBRARY to MultiThreadedDLL (/MD),
+      # so the deps MUST be static libraries linked INTO the DLL.  With the
+      # plain x64-windows triplet fmt/spdlog become separate DLLs, and SKSE
+      # then reports "couldn't load plugin 126" unless those DLLs are shipped
+      # alongside - the local machine's D:/dev/deps are static .lib precisely
+      # for this reason.  Match that in CI: one self-contained DLL, no extras.
       - name: Install dependencies
         shell: pwsh
         run: |
           $vcpkg = Join-Path $env:VCPKG_INSTALLATION_ROOT 'vcpkg.exe'
           Write-Host "Using vcpkg: $vcpkg"
           & $vcpkg version
-          & $vcpkg install fmt:x64-windows spdlog:x64-windows rapidcsv:x64-windows --triplet x64-windows 2>&1 | Tee-Object -FilePath vcpkg-install.log
+          & $vcpkg install fmt:x64-windows-static-md spdlog:x64-windows-static-md rapidcsv:x64-windows-static-md --triplet x64-windows-static-md 2>&1 | Tee-Object -FilePath vcpkg-install.log
           if ($LASTEXITCODE -ne 0) {
             $tail = (Get-Content vcpkg-install.log -Tail 80) -join [Environment]::NewLine
             "### vcpkg install failed`n`n$tail" | Add-Content $env:GITHUB_STEP_SUMMARY
@@ -86,7 +94,7 @@ jobs:
           cmake -S IMR -B IMR/build `
             -G "Visual Studio 17 2022" -A x64 `
             -DCMAKE_TOOLCHAIN_FILE="$toolchain" `
-            -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static-md `
             -DVCPKG_MANIFEST_MODE=OFF `
             -DIMR_COMMONLIB_DIR="${{ github.workspace }}/CommonLibSSE-NG" `
             -DIMR_DEPS_DIR=""
@@ -105,47 +113,28 @@ jobs:
             throw "Build failed (exit $LASTEXITCODE)"
           }
 
-      # vcpkg's x64-windows triplet builds spdlog/fmt as DYNAMIC libraries.
-      # SKSE loads the plugin with LoadLibrary, which resolves imports at that
-      # moment - a missing sibling DLL is reported as "couldn't load plugin 126"
-      # (ERROR_MOD_NOT_FOUND), NOT as an address-library error.  The local
-      # known-good 2.2 build static-linked these; CI must ship them alongside.
-      - name: Collect runtime dependencies
+      # The single-DLL contract: no spdlog.dll/fmt.dll may be required at
+      # runtime.  With x64-windows-static-md these are .lib linked INTO the
+      # DLL, so their names should be absent from the import table.  Fail the
+      # build if they are present - that means the triplet was wrong and the
+      # user would hit "couldn't load plugin 126" in game.
+      - name: Verify single self-contained DLL
         shell: pwsh
         run: |
-          $bin = Join-Path $env:VCPKG_INSTALLATION_ROOT 'installed/x64-windows/bin'
-          $dest = 'IMR/build/Release'
-          foreach ($dll in @('spdlog.dll', 'fmt.dll')) {
-            $src = Join-Path $bin $dll
-            if (-not (Test-Path $src)) { throw "Expected runtime dependency missing: $src" }
-            Copy-Item -LiteralPath $src -Destination $dest -Force
-            $f = Get-Item (Join-Path $dest $dll)
-            "### Runtime dependency`n- $dll : $($f.Length) bytes" | Add-Content $env:GITHUB_STEP_SUMMARY
-          }
-
-      # Fail the build here rather than let a user hit LoadLibrary error 126.
-      - name: Verify shipped dependencies
-        shell: pwsh
-        run: |
-          $dest = 'IMR/build/Release'
-          $dlls = @(
-            'InteractiveMusicRadio.dll',
-            'InteractiveMusicRadio_en.dll',
-            'spdlog.dll',
-            'fmt.dll'
-          )
-          foreach ($dll in $dlls) {
-            if (-not (Test-Path (Join-Path $dest $dll))) {
-              throw "Deployment set is incomplete: $dll is missing"
-            }
-          }
+          $dll = 'IMR/build/Release/InteractiveMusicRadio.dll'
+          if (-not (Test-Path $dll)) { throw "Build output missing: $dll" }
           $dumpbin = (Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC' -Recurse -Filter dumpbin.exe -ErrorAction SilentlyContinue |
             Select-Object -First 1).FullName
           if ($dumpbin) {
-            $need = & $dumpbin /dependents (Join-Path $dest 'InteractiveMusicRadio.dll') |
-              Select-String -Pattern '^(spdlog|fmt)\.dll$'
-            "### Import check`n- spdlog.dll/fmt.dll found in import table: $([bool]$need)" |
-              Add-Content $env:GITHUB_STEP_SUMMARY
+            $deps = & $dumpbin /dependents $dll | Out-String
+            if ($deps -match '(?im)^\s*spdlog\.dll\s*$' -or $deps -match '(?im)^\s*fmt\.dll\s*$') {
+              $tail = ($deps -split "`n" | Where-Object { $_ -match 'spdlog|fmt' }) -join "`n"
+              "### Bad dynamic dependency`n$tail" | Add-Content $env:GITHUB_STEP_SUMMARY
+              throw "DLL still imports spdlog.dll/fmt.dll - triplet must be static; refusing to publish"
+            }
+            "### Single-DLL check`n- No spdlog.dll/fmt.dll in import table: OK" | Add-Content $env:GITHUB_STEP_SUMMARY
+          } else {
+            Write-Host "dumpbin not found; skipping import-table check"
           }
 
       - name: Test (Chinese build)
@@ -177,14 +166,12 @@ jobs:
       - name: Upload DLLs
         uses: actions/upload-artifact@v4
         with:
-          name: InteractiveMusicRadio-2.3-clib${{ env.COMMONLIB_VERSION }}
+          name: InteractiveMusicRadio-2.3-clib${{ env.COMMONLIB_VERSION }}-static
           path: |
             IMR/build/Release/InteractiveMusicRadio.dll
             IMR/build/Release/InteractiveMusicRadio_en.dll
             IMR/build/Release/InteractiveMusicRadio.pdb
             IMR/build/Release/InteractiveMusicRadio_en.pdb
-            IMR/build/Release/spdlog.dll
-            IMR/build/Release/fmt.dll
           if-no-files-found: error
 
       # Public release asset: downloadable without a token, so deployment is
@@ -192,15 +179,15 @@ jobs:
       - name: Publish DLLs to a rolling release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: autobuild-clib${{ env.COMMONLIB_VERSION }}
-          name: Autobuild (CommonLibSSE-NG ${{ env.COMMONLIB_VERSION }})
+          tag_name: autobuild-clib${{ env.COMMONLIB_VERSION }}-static
+          name: Autobuild (CommonLibSSE-NG ${{ env.COMMONLIB_VERSION }}, static single DLL)
           body: |
             Auto-built from master. CommonLibSSE-NG ${{ env.COMMONLIB_VERSION }}
             (${{ env.COMMONLIB_REF }}), REL::ID set must match target machine's
-            versionlib-*.bin. Do not bump CLIB without re-validating in game.
+            versionlib-*.bin. Dependencies (fmt/spdlog) are linked statically via
+            the x64-windows-static-md triplet - this is ONE self-contained DLL,
+            no extra DLLs needed. Do not bump CLIB without re-validating in game.
           files: |
             IMR/build/Release/InteractiveMusicRadio.dll
             IMR/build/Release/InteractiveMusicRadio_en.dll
-            IMR/build/Release/spdlog.dll
-            IMR/build/Release/fmt.dll
           fail_on_unmatched_files: true

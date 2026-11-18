@@ -26,11 +26,14 @@ list(APPEND CMAKE_PREFIX_PATH "${IMR_DEPS_DIR}")
 
 set(SKSE_SUPPORT_XBYAK OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(ENABLE_SKYRIM_AE ON CACHE BOOL "" FORCE)
+# CommonLibSSE-NG achieves one-DLL SE/AE support through these options plus
+# the Address Library; it does NOT use the old upstream SKYRIM_SUPPORT_AE
+# macro.  Defining that macro is meaningless here and only risks colliding
+# with other code that still expects the legacy CommonLibSSE semantics.
 set(ENABLE_SKYRIM_SE ON CACHE BOOL "" FORCE)
+set(ENABLE_SKYRIM_AE ON CACHE BOOL "" FORCE)
 set(ENABLE_SKYRIM_VR OFF CACHE BOOL "" FORCE)
 
-add_compile_definitions(SKYRIM_SUPPORT_AE=1)
 add_compile_definitions(_CRT_SECURE_NO_WARNINGS NOMINMAX WIN32_LEAN_AND_MEAN)
 
 # CommonLibSSE-NG source tree.  Locally it lives at D:/dev/CommonLibSSE-NG;

@@ -105,6 +105,49 @@ jobs:
             throw "Build failed (exit $LASTEXITCODE)"
           }
 
+      # vcpkg's x64-windows triplet builds spdlog/fmt as DYNAMIC libraries.
+      # SKSE loads the plugin with LoadLibrary, which resolves imports at that
+      # moment - a missing sibling DLL is reported as "couldn't load plugin 126"
+      # (ERROR_MOD_NOT_FOUND), NOT as an address-library error.  The local
+      # known-good 2.2 build static-linked these; CI must ship them alongside.
+      - name: Collect runtime dependencies
+        shell: pwsh
+        run: |
+          $bin = Join-Path $env:VCPKG_INSTALLATION_ROOT 'installed/x64-windows/bin'
+          $dest = 'IMR/build/Release'
+          foreach ($dll in @('spdlog.dll', 'fmt.dll')) {
+            $src = Join-Path $bin $dll
+            if (-not (Test-Path $src)) { throw "Expected runtime dependency missing: $src" }
+            Copy-Item -LiteralPath $src -Destination $dest -Force
+            $f = Get-Item (Join-Path $dest $dll)
+            "### Runtime dependency`n- $dll : $($f.Length) bytes" | Add-Content $env:GITHUB_STEP_SUMMARY
+          }
+
+      # Fail the build here rather than let a user hit LoadLibrary error 126.
+      - name: Verify shipped dependencies
+        shell: pwsh
+        run: |
+          $dest = 'IMR/build/Release'
+          $dlls = @(
+            'InteractiveMusicRadio.dll',
+            'InteractiveMusicRadio_en.dll',
+            'spdlog.dll',
+            'fmt.dll'
+          )
+          foreach ($dll in $dlls) {
+            if (-not (Test-Path (Join-Path $dest $dll))) {
+              throw "Deployment set is incomplete: $dll is missing"
+            }
+          }
+          $dumpbin = (Get-ChildItem 'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Tools\MSVC' -Recurse -Filter dumpbin.exe -ErrorAction SilentlyContinue |
+            Select-Object -First 1).FullName
+          if ($dumpbin) {
+            $need = & $dumpbin /dependents (Join-Path $dest 'InteractiveMusicRadio.dll') |
+              Select-String -Pattern '^(spdlog|fmt)\.dll$'
+            "### Import check`n- spdlog.dll/fmt.dll found in import table: $([bool]$need)" |
+              Add-Content $env:GITHUB_STEP_SUMMARY
+          }
+
       - name: Test (Chinese build)
         shell: pwsh
         working-directory: ${{ github.workspace }}
@@ -140,6 +183,8 @@ jobs:
             IMR/build/Release/InteractiveMusicRadio_en.dll
             IMR/build/Release/InteractiveMusicRadio.pdb
             IMR/build/Release/InteractiveMusicRadio_en.pdb
+            IMR/build/Release/spdlog.dll
+            IMR/build/Release/fmt.dll
           if-no-files-found: error
 
       # Public release asset: downloadable without a token, so deployment is
@@ -156,4 +201,6 @@ jobs:
           files: |
             IMR/build/Release/InteractiveMusicRadio.dll
             IMR/build/Release/InteractiveMusicRadio_en.dll
+            IMR/build/Release/spdlog.dll
+            IMR/build/Release/fmt.dll
           fail_on_unmatched_files: true

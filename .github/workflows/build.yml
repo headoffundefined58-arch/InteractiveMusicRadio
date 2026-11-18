@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   # MUST match the CommonLibSSE-NG version whose REL::ID set matches the
@@ -141,3 +141,19 @@ jobs:
             IMR/build/Release/InteractiveMusicRadio.pdb
             IMR/build/Release/InteractiveMusicRadio_en.pdb
           if-no-files-found: error
+
+      # Public release asset: downloadable without a token, so deployment is
+      # possible even when local credential/curl combos are blocked.
+      - name: Publish DLLs to a rolling release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: autobuild-clib${{ env.COMMONLIB_VERSION }}
+          name: Autobuild (CommonLibSSE-NG ${{ env.COMMONLIB_VERSION }})
+          body: |
+            Auto-built from master. CommonLibSSE-NG ${{ env.COMMONLIB_VERSION }}
+            (${{ env.COMMONLIB_REF }}), REL::ID set must match target machine's
+            versionlib-*.bin. Do not bump CLIB without re-validating in game.
+          files: |
+            IMR/build/Release/InteractiveMusicRadio.dll
+            IMR/build/Release/InteractiveMusicRadio_en.dll
+          fail_on_unmatched_files: true

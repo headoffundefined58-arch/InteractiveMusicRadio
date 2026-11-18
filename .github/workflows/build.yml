@@ -12,11 +12,7 @@ permissions:
   contents: read
 
 env:
-  # Pinned to the same vcpkg revision CommonLibSSE-NG v3.7.0's own CI uses.
-  VCPKG_COMMIT: 01b29f6d8212bc845da64773b18665d682f5ab66
   COMMONLIB_REF: v3.7.0
-  # This pinned vcpkg predates the x-gha cache provider that run-vcpkg injects.
-  VCPKG_BINARY_SOURCES: clear
 
 jobs:
   build:
@@ -34,28 +30,27 @@ jobs:
           ref: ${{ env.COMMONLIB_REF }}
           path: CommonLibSSE-NG
 
-      - name: Setup vcpkg
-        id: vcpkg
-        uses: lukka/run-vcpkg@v11
-        with:
-          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
-
-      # Explicit classic-mode install.  Errors from this step land in the job
-      # annotations, which is far easier to diagnose than CMake's opaque
-      # manifest-mode "vcpkg install failed".
+      # Use the vcpkg preinstalled on windows-2022 (VCPKG_INSTALLATION_ROOT).
+      # It is bootstrapped and its binary cache works, unlike the pinned 2022
+      # revision which run-vcpkg kept forcing an unsupported x-gha provider on.
       - name: Install dependencies
         shell: pwsh
         run: |
-          & "$env:VCPKG_ROOT/vcpkg.exe" install `
-            fmt:x64-windows spdlog:x64-windows rapidcsv:x64-windows `
-            --triplet x64-windows
-          if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed" }
+          $vcpkg = Join-Path $env:VCPKG_INSTALLATION_ROOT 'vcpkg.exe'
+          Write-Host "Using vcpkg: $vcpkg"
+          & $vcpkg version
+          & $vcpkg install fmt:x64-windows spdlog:x64-windows rapidcsv:x64-windows --triplet x64-windows 2>&1 | Tee-Object -FilePath vcpkg-install.log
+          if ($LASTEXITCODE -ne 0) {
+            $tail = (Get-Content vcpkg-install.log -Tail 80) -join [Environment]::NewLine
+            "### vcpkg install failed`n`n$tail" | Add-Content $env:GITHUB_STEP_SUMMARY
+            throw "vcpkg install failed (exit $LASTEXITCODE)"
+          }
 
       - name: Configure
         shell: pwsh
         working-directory: ${{ github.workspace }}
         run: |
-          $toolchain = Join-Path $env:VCPKG_ROOT 'scripts/buildsystems/vcpkg.cmake'
+          $toolchain = Join-Path $env:VCPKG_INSTALLATION_ROOT 'scripts/buildsystems/vcpkg.cmake'
           cmake -S IMR -B IMR/build `
             -G "Visual Studio 17 2022" -A x64 `
             -DCMAKE_TOOLCHAIN_FILE="$toolchain" `
@@ -63,6 +58,7 @@ jobs:
             -DVCPKG_MANIFEST_MODE=OFF `
             -DIMR_COMMONLIB_DIR="${{ github.workspace }}/CommonLibSSE-NG" `
             -DIMR_DEPS_DIR=""
+          if ($LASTEXITCODE -ne 0) { throw "CMake configure failed (exit $LASTEXITCODE)" }
 
       - name: Build
         shell: pwsh

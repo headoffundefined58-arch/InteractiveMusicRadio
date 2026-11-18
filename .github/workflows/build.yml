@@ -15,6 +15,10 @@ env:
   # Pinned to the same vcpkg revision CommonLibSSE-NG v3.7.0's own CI uses.
   VCPKG_COMMIT: 01b29f6d8212bc845da64773b18665d682f5ab66
   COMMONLIB_REF: v3.7.0
+  # This pinned vcpkg predates the x-gha cache provider that run-vcpkg injects;
+  # setting it up front stops the action overriding it and fixes "unknown
+  # binary provider type: x-gha".
+  VCPKG_BINARY_SOURCES: clear
 
 jobs:
   build:

@@ -225,6 +225,13 @@ checks: config, catalogue, LRC, play modes, position interpolation and the
 video-subtitle text/stabiliser helpers). CI (`.github/workflows/build.yml`)
 produces the same artifacts on `windows-2022`.
 
+**CommonLibSSE-NG is pinned to `v3.6.0` in CI.** Do not bump it casually: each
+CLib release can renumber `REL::ID`, and a DLL built against a newer ID set
+fails to load on machines whose `versionlib-*.bin` was generated for the older
+set ("Failed to find the id within the address library"). Only upgrade after
+re-validating in game. The build writes the exact CLib version into the job
+summary and artifact name so a mismatch can be identified without disassembly.
+
 `extern/PrismaUI_API.h` is copied verbatim from the PrismaUI 1.5.1 release. It
 declares the interface; nothing from PrismaUI is compiled or linked here.
 

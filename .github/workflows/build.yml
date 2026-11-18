@@ -41,11 +41,26 @@ jobs:
       - name: Record CommonLibSSE-NG version
         shell: pwsh
         run: |
-          $m = Select-String -Path 'CommonLibSSE-NG/CMakeLists.txt' -Pattern 'project\(\s*CommonLibSSE\s+VERSION\s+([0-9.]+)' | Select-Object -First 1
-          if (-not $m) { throw "Cannot read CommonLibSSE version from CMakeLists.txt" }
-          $ver = $m.Matches[0].Groups[1].Value
+          # v3.6.0 writes project() as a MULTI-LINE block:
+          #   project(
+          #     CommonLibSSE
+          #     LANGUAGES CXX
+          #     VERSION 3.6.0
+          #   )
+          # A single-line 'project(...VERSION...)' regex silently matches nothing.
+          $cm = Get-Content 'CommonLibSSE-NG/CMakeLists.txt' -Raw
+          $pb = [regex]::Match($cm, 'project\s*\((?<body>[\s\S]*?)\)')
+          if (-not $pb.Success) { throw "Cannot find project() block in CommonLibSSE-NG/CMakeLists.txt" }
+          $vm = [regex]::Match($pb.Groups['body'].Value, 'VERSION\s+([0-9.]+)')
+          if (-not $vm.Success) { throw "Cannot read VERSION from project() block" }
+          $ver = $vm.Groups[1].Value
+          $sha = (git -C CommonLibSSE-NG rev-parse HEAD).Trim()
+          $tag = (git -C CommonLibSSE-NG describe --tags --exact-match 2>$null).Trim()
+          if ($tag -and $tag -ne '${{ env.COMMONLIB_REF }}') {
+            throw "Checked-out tag '$tag' != pinned REF '${{ env.COMMONLIB_REF }}' - refusing to build with the wrong REL::ID set"
+          }
           "COMMONLIB_VERSION=$ver" | Add-Content $env:GITHUB_ENV
-          "### Build inputs`n- CommonLibSSE-NG: $ver (${{ env.COMMONLIB_REF }})`n- REL::ID set must match the target machine's versionlib-*.bin`n" | Add-Content $env:GITHUB_STEP_SUMMARY
+          "### Build inputs`n- CommonLibSSE-NG: $ver (tag $tag / $sha)`n- Pinned REF: ${{ env.COMMONLIB_REF }}`n- REL::ID set must match target machine's versionlib-*.bin`n- Refusing to build if checkout tag differs from pin" | Add-Content $env:GITHUB_STEP_SUMMARY
 
       # Use the vcpkg preinstalled on windows-2022 (VCPKG_INSTALLATION_ROOT).
       # It is bootstrapped and its binary cache works, unlike the pinned 2022

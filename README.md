@@ -87,6 +87,34 @@ single symbol clash.
   wait (60 ms metadata / 400 ms commands) so a hung player cannot freeze the
   radio. Final behaviour of every retained feature is unchanged.
 
+## Version 2.3 — video subtitles (web player)
+
+* **The desktop lyric can now show the subtitles actually drawn in a video.**
+  Link any 网页版 source and turn 桌面歌词 on: IMR finds the browser window that
+  owns the media session and, through **Windows Graphics Capture**, grabs its
+  video frames *even while the fullscreen game covers the window*. A worker
+  thread crops the bottom strip of the frame, runs **Windows OCR** (Simplified
+  Chinese / the user's recogniser languages) over it, stabilises the result so
+  single-frame misreads never flash, and puts the recognised line on the web
+  lyric window. MV lyrics and talk-video captions both work — the words come
+  from the picture, not from a lyrics database.
+* **Graceful fallback.** Capture only runs for an active web player with lyrics
+  on. If there is no OCR language pack, no visible browser window, capture is
+  refused, or the line goes stale (> 3 s), the timed network lyric takes over
+  automatically. The panel shows `歌词：视频字幕` / `歌词：网络` so it is clear
+  which source is feeding the window.
+* **Off the engine thread.** All WinRT / D3D11 work lives on one self-contained
+  worker thread with its own MTA apartment; `Start` / `Stop` / `Take` never block
+  on WinRT. The OCR cadence and crop region are configurable in the INI
+  (`iVideoSubIntervalMs`, `iVideoSubCropBottomPct`), and `bVideoSubtitles=0`
+  turns the whole feature off.
+
+> Requires Windows 10 1903+ (Graphics Capture) and a Windows OCR language pack.
+> On first capture Windows may show its standard "an app is capturing this
+> window" border; the plugin requests border/cursor hiding where supported.
+> A **minimised** browser cannot be captured — restore it (it may sit behind the
+> fullscreen game) or the network lyric is used instead.
+
 ## Compatibility with CustomMusicSystem
 
 | Concern | How it is handled |
@@ -192,8 +220,10 @@ python build.py            # Release, both language DLLs
 ```
 
 Output: `build/Release/InteractiveMusicRadio.dll` and
-`InteractiveMusicRadio_en.dll`, plus the two test executables (149 pure-logic
-checks each: config, catalogue, LRC, play modes and position interpolation).
+`InteractiveMusicRadio_en.dll`, plus the two test executables (pure-logic
+checks: config, catalogue, LRC, play modes, position interpolation and the
+video-subtitle text/stabiliser helpers). CI (`.github/workflows/build.yml`)
+produces the same artifacts on `windows-2022`.
 
 `extern/PrismaUI_API.h` is copied verbatim from the PrismaUI 1.5.1 release. It
 declares the interface; nothing from PrismaUI is compiled or linked here.

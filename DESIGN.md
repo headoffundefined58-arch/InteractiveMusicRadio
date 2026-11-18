@@ -1,4 +1,4 @@
-# Interactive Music Radio — design notes (2.2)
+# Interactive Music Radio — design notes (2.3)
 
 ## What it is (and is not)
 
@@ -217,6 +217,38 @@ and a source switch clear all pending state.
 * All WinRT `IAsyncOperation::get()` calls were replaced by bounded
   `wait_for` + `GetResults()` (60 ms metadata, 400 ms commands), so a hung
   player cannot freeze the handshake, the lyric windows or the UI.
+
+## Video subtitles (2.3)
+
+Only for a linked **web** source with the desktop-lyric switch ON. `main.cpp`
+gates the whole pipeline (`wantVideo`), so a desktop source, a paused player or
+lyrics OFF never start it.
+
+Target discovery: enumerate top-level windows, keep visible, non-minimised ones
+whose process exe matches the browser list in `sources.cpp`, and pick the
+largest; a window whose title contains the current track title wins. WGC can
+then capture that window even while the fullscreen game occludes it.
+
+`VideoSubtitle` (`subtitle.h`, `video_capture.cpp`) owns one worker thread with
+its own MTA apartment. It builds
+`GraphicsCaptureItem` ← `IGraphicsCaptureItemInterop::CreateForWindow`, a
+free-threaded `Direct3D11CaptureFramePool`, and a capture session (border and
+cursor hidden where supported). Every `intervalMs` it pulls the newest frame,
+copies the texture's bottom `cropBottomPct` strip into a staging texture, maps
+it, packs the BGRA rows into a `SoftwareBitmap`, and calls `OcrEngine`
+(zh-Hans → zh-CN → user profile languages). The text passes through
+`CleanOcrText` (noise lines dropped, whitespace collapsed) and a
+`SubtitleStabilizer` that needs two identical reads before publishing, so a
+single-frame OCR misread never appears.
+
+The published line goes into a mutex-protected slot; `Take()` is non-blocking.
+`RefreshLyrics` sets it on the web overlay via `SetLiveLine`, which makes
+`Tick()` a no-op for that window, and clears it after 3 s without a fresh line
+so the timed network LRC resumes. No WinRT object crosses the worker boundary.
+
+Failure is always non-fatal: no language pack / no browser window / capture
+refused → `Available()` or `Start()` simply fail and the network lyric is used.
+`bVideoSubtitles=0` disables it entirely.
 
 ## When the view is blank (1.1.1)
 

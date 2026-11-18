@@ -122,6 +122,9 @@ void Config::ApplyKey(std::string_view a_key, std::string_view a_value)
 	else if (k == "bFetchLyrics") asBool(fetchLyrics);
 	else if (k == "iLyricFontSize") asInt(lyricFontSize);
 	else if (k == "iLyricOffsetMs") asInt(lyricOffsetMs);
+	else if (k == "bVideoSubtitles") asBool(videoSubtitles);
+	else if (k == "iVideoSubIntervalMs") asInt(videoSubIntervalMs);
+	else if (k == "iVideoSubCropBottomPct") asInt(videoSubCropBottomPct);
 	else if (k == "bVerbose") asBool(verbose);
 }
 
@@ -175,7 +178,13 @@ bool Config::SaveToFile(const std::string& a_path) const
 	out << "bLyricsOnStart=" << (lyricsOnStart ? 1 : 0) << "\n";
 	out << "bFetchLyrics=" << (fetchLyrics ? 1 : 0) << "\n";
 	out << "iLyricFontSize=" << lyricFontSize << "\n";
-	out << "iLyricOffsetMs=" << lyricOffsetMs << "\n";
+	out << "iLyricOffsetMs=" << lyricOffsetMs << "\n\n";
+	out << "; Video subtitles (web player only, needs desktop lyrics ON):\n";
+	out << "; OCR the bottom strip of the browser video for its subtitles,\n";
+	out << "; falling back to the network lyric when nothing is recognised.\n";
+	out << "bVideoSubtitles=" << (videoSubtitles ? 1 : 0) << "\n";
+	out << "iVideoSubIntervalMs=" << videoSubIntervalMs << "\n";
+	out << "iVideoSubCropBottomPct=" << videoSubCropBottomPct << "\n\n";
 	out << "bVerbose=" << (verbose ? 1 : 0) << "\n";
 	return static_cast<bool>(out);
 }

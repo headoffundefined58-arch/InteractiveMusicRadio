@@ -42,6 +42,7 @@
     px: 0, py: 0,    // panel offset from its centred default
     lk: true,        // lyric window locked (click-through)
     lkind: 0,        // 0 desktop / 1 web - which lyric window is active
+    subsrc: 0,       // 0 none / 1 video OCR / 2 network LRC
     hotkey: "F10",
     bind: 0,         // 1 = recording a new hotkey
     offset: 0,       // lyric sync nudge, ms
@@ -78,6 +79,7 @@
     lyricsSwitch: document.getElementById("lyricsSwitch"),
     lyricsLockSwitch: document.getElementById("lyricsLockSwitch"),
     lyricKind: document.getElementById("lyricKind"),
+    subTag: document.getElementById("subTag"),
     offsetValue: document.getElementById("offsetValue"),
     offsetMinus: document.getElementById("offsetMinus"),
     offsetPlus: document.getElementById("offsetPlus"),
@@ -281,6 +283,10 @@
     el.lyricsSwitch.checked = !!state.lyrics;
     el.lyricsLockSwitch.checked = !!state.lk;
     el.lyricKind.textContent = state.lkind === 1 ? "网页版" : "桌面版";
+    var subText = state.subsrc === 1 ? "歌词：视频字幕"
+      : state.subsrc === 2 ? "歌词：网络" : "歌词：—";
+    el.subTag.textContent = subText;
+    el.subTag.classList.toggle("video", state.subsrc === 1);
     el.offsetValue.textContent = (state.offset >= 0 ? "+" : "") +
       (state.offset / 1000).toFixed(2) + "s";
     el.hotkeyBtn.textContent = state.bind === 1
@@ -324,7 +330,7 @@
   }
 
   function settingsSignature() {
-    return [state.lyrics ? 1 : 0, state.lk ? 1 : 0, state.lkind,
+    return [state.lyrics ? 1 : 0, state.lk ? 1 : 0, state.lkind, state.subsrc,
       state.bind, state.hotkey, state.offset].join("|");
   }
 
@@ -366,6 +372,7 @@
     state.pm = (typeof d.pm === "number") ? d.pm : -1;
     state.lk = d.lk !== 0 && d.lk !== false;
     state.lkind = d.lkind === 1 ? 1 : 0;
+    state.subsrc = typeof d.subsrc === "number" ? d.subsrc : 0;
     state.bind = d.bind === 1 ? 1 : 0;
     state.hotkey = d.hotkey || "未设置";
     state.offset = typeof d.offset === "number" ? d.offset : 0;

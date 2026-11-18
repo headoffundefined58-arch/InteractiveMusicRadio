@@ -135,7 +135,9 @@ std::string ToJson(const Snapshot& a_s)
 	j += a_s.lyrics ? "1" : "0";
 	j += ",\"lyric\":\"";
 	j += Esc(a_s.lyricNow);
-	j += "\",\"active\":\"";
+	j += "\",\"subsrc\":";
+	j += std::to_string(a_s.subSource);   // 0 none / 1 video OCR / 2 network LRC
+	j += ",\"active\":\"";
 	j += Esc(a_s.activeId);
 	j += "\",\"gain\":";
 	j += F2(a_s.capturedGain);

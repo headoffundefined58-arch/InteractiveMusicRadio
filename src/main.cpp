@@ -43,6 +43,7 @@
 #include "platform.h"
 #include "session.h"
 #include "sources.h"
+#include "subtitle.h"
 #include "ui.h"
 
 namespace fs = std::filesystem;
@@ -56,6 +57,7 @@ AudioSessionController g_sessions;
 CmsHandshake           g_handshake;
 NowPlaying             g_media;
 LyricsOverlay          g_lyrics[2];   // [0] desktop player, [1] web player
+VideoSubtitle          g_videoSub;    // browser video -> OCR subtitle (web only)
 Snapshot               g_snap;
 
 std::thread       g_engine;
@@ -455,6 +457,11 @@ bool TakeLyric(int a_kind, std::string* a_lrc)
 	return true;
 }
 
+// Video-subtitle capture is only meaningful for an active web player whose
+// desktop lyric switch is ON.  Everything else (desktop source, lyrics closed,
+// paused / no media) stops the worker so an idle radio costs nothing.
+double g_lastVideoSubAt = -100.0;   // stamp of the last accepted OCR line
+
 void RefreshLyrics()
 {
 	const MediaSource* linked = ActiveSource();
@@ -466,8 +473,22 @@ void RefreshLyrics()
 		g_lyrics[k].SetVisible(g_snap.lyrics && k == kind &&
 			linked && linked->track.hasMedia);
 	}
+
+	const bool wantVideo = g_cfg.enabled && g_cfg.videoSubtitles &&
+		g_snap.lyrics && kind == 1 && linked && linked->track.hasMedia &&
+		linked->track.playing && g_videoSub.Available();
+
+	if (!wantVideo) {
+		if (g_videoSub.Running()) {
+			g_videoSub.Stop();
+			g_lyrics[1].ClearLiveLine();
+			g_lastVideoSubAt = -100.0;
+		}
+	}
+
 	if (!linked || !linked->track.hasMedia) {
 		g_snap.lyricNow.clear();
+		g_snap.subSource = 0;
 		for (auto& l : g_lyrics) l.Pump();
 		return;
 	}
@@ -488,12 +509,40 @@ void RefreshLyrics()
 			linked->track.title.c_str(), linked->track.artist.c_str(), lrc.size());
 	}
 
+	// -- video subtitles (web player + desktop lyrics ON) -------------------
+	// Start the capture worker once when conditions first hold; it re-targets
+	// itself if the browser window changes.  Take() is non-blocking.
+	if (wantVideo) {
+		VideoSubConfig cfg;
+		cfg.enabled = g_cfg.videoSubtitles;
+		cfg.intervalMs = g_cfg.videoSubIntervalMs;
+		cfg.cropBottomPct = g_cfg.videoSubCropBottomPct;
+		g_videoSub.Start(cfg, linked->track.title);
+
+		std::string sub;
+		double subAt = 0.0;
+		if (g_videoSub.Take(&sub, &subAt) && !sub.empty()) {
+			g_lyrics[kind].SetLiveLine(sub);
+			g_lastVideoSubAt = subAt;
+		}
+		// A subtitle stays on screen for a few seconds.  If the worker stops
+		// delivering (window closed, OCR stalled), go back to the timed lyric
+		// instead of freezing the last recognised line forever.
+		if (g_lyrics[kind].HasLiveLine() &&
+			NowSeconds() - g_lastVideoSubAt > 3.0) {
+			g_lyrics[kind].ClearLiveLine();
+		}
+	}
+
 	// RefreshSources() already produced the interpolated "now" position; the
-	// only extra term is the user's lyric calibration.
+	// only extra term is the user's lyric calibration.  Tick() is a no-op while
+	// a live video subtitle is showing, so it cannot overwrite it.
 	const double pos = linked->track.position +
 		static_cast<double>(g_cfg.lyricOffsetMs) / 1000.0;
 	g_lyrics[kind].Tick(pos);
 	g_snap.lyricNow = g_lyrics[kind].CurrentLine();
+	g_snap.subSource = (kind == 1 && g_lyrics[kind].HasLiveLine()) ? 1 : 2;
+
 	// Both windows must be painted: one is hidden, but each still owns its
 	// own layered bitmap and message queue.
 	for (auto& l : g_lyrics) l.Pump();
@@ -813,6 +862,15 @@ void EngineLoop()
 	} else {
 		IMR_LOG_W("media session unavailable: %s - transport control is off", err.c_str());
 	}
+	// NowPlaying::Init has initialised WinRT on this thread; probe OCR here.
+	{
+		std::string subErr;
+		if (!g_videoSub.Init(&subErr)) {
+			IMR_LOG_W("video subtitles disabled: %s", subErr.c_str());
+		} else if (g_cfg.videoSubtitles) {
+			IMR_LOG_I("video subtitles ready (web player + desktop lyrics -> OCR)");
+		}
+	}
 	if (g_sessions.Init(&err)) {
 		IMR_LOG_I("audio session controller ready");
 	} else {
@@ -950,7 +1008,7 @@ void StartAll()
 	const std::string logPath = (logDir / "InteractiveMusicRadio.log").string();
 	LogOpen(logPath);
 
-	IMR_LOG_I("InteractiveMusicRadio 2.2.0  (music apps / music sites)");
+	IMR_LOG_I("InteractiveMusicRadio 2.3.0  (music apps / music sites + video subtitles)");
 	IMR_LOG_I("data dir:   %s", g_cfg.dataDir.c_str());
 	IMR_LOG_I("plugin dir: %s", g_cfg.pluginDir.c_str());
 	IMR_LOG_I("log file:   %s", logPath.c_str());
@@ -1002,6 +1060,7 @@ void StopAll()
 	g_run.store(false, std::memory_order_release);
 	WakeEngine();
 	if (g_engine.joinable()) g_engine.join();
+	g_videoSub.Stop();   // join the OCR worker before WinRT teardown
 
 	RemoveHotkey();
 	ui::Detach();
@@ -1038,7 +1097,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 }
 
 SKSEPluginInfo(
-	.Version = { 2, 2, 0, 0 },
+	.Version = { 2, 3, 0, 0 },
 	.Name = "InteractiveMusicRadio",
 	.Author = "Icarus",
 	.SupportEmail = "",

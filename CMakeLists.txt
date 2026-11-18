@@ -4,7 +4,7 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:DEBUG>:Debug>DLL")
 
 project(
     InteractiveMusicRadio
-    VERSION 2.2.0
+    VERSION 2.3.0
     LANGUAGES CXX
 )
 
@@ -15,7 +15,14 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /utf-8 /EHsc /permissive- /Zc:__cplusplu
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /Zi /FS /GL")
 set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "${CMAKE_SHARED_LINKER_FLAGS_RELEASE} /DEBUG:FULL /LTCG /OPT:REF /OPT:ICF")
 
-list(APPEND CMAKE_PREFIX_PATH "D:/dev/deps")
+# fmt/spdlog/detours/rapidcsv headers + prebuilt libs are assembled under
+# D:/dev/deps on this machine (no working vcpkg here).  CI uses the vcpkg
+# toolchain instead and may override this path; a missing directory is harmless
+# because find_package/find_path then resolve through the vcpkg prefix path.
+if(NOT DEFINED IMR_DEPS_DIR OR IMR_DEPS_DIR STREQUAL "")
+    set(IMR_DEPS_DIR "D:/dev/deps")
+endif()
+list(APPEND CMAKE_PREFIX_PATH "${IMR_DEPS_DIR}")
 
 set(SKSE_SUPPORT_XBYAK OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -26,7 +33,12 @@ set(ENABLE_SKYRIM_VR OFF CACHE BOOL "" FORCE)
 add_compile_definitions(SKYRIM_SUPPORT_AE=1)
 add_compile_definitions(_CRT_SECURE_NO_WARNINGS NOMINMAX WIN32_LEAN_AND_MEAN)
 
-add_subdirectory("D:/dev/CommonLibSSE-NG" "${CMAKE_CURRENT_BINARY_DIR}/CommonLibSSE-NG")
+# CommonLibSSE-NG source tree.  Locally it lives at D:/dev/CommonLibSSE-NG;
+# CI passes -DIMR_COMMONLIB_DIR=<checkout> to point at its own checkout.
+if(NOT DEFINED IMR_COMMONLIB_DIR OR IMR_COMMONLIB_DIR STREQUAL "")
+    set(IMR_COMMONLIB_DIR "D:/dev/CommonLibSSE-NG")
+endif()
+add_subdirectory("${IMR_COMMONLIB_DIR}" "${CMAKE_CURRENT_BINARY_DIR}/CommonLibSSE-NG")
 
 set(IMR_CORE_SRC
     src/core.cpp
@@ -37,6 +49,8 @@ set(IMR_CORE_SRC
     src/lrc.cpp
     src/lyrics.cpp
     src/lyrics_net.cpp
+    src/subtitle_text.cpp
+    src/video_capture.cpp
     src/handshake.cpp
     src/ui.cpp
 )
@@ -58,9 +72,10 @@ function(imr_add_build suffix zh output_name)
     # ole32/oleaut32 : Core Audio COM (no UI Automation in 2.2)
     # winhttp        : lyric look-up (the only networked code)
     # shell32        : opening a music site in the system browser
-    # windowsapp     : C++/WinRT activation for the media session (SMTC)
+    # windowsapp     : C++/WinRT activation (SMTC + Graphics Capture + OCR)
+    # d3d11/dxgi     : WGC frame-pool device + staging copy for subtitles
     target_link_libraries(InteractiveMusicRadioCore${suffix} PUBLIC
-        ole32 oleaut32 winhttp shell32 windowsapp)
+        ole32 oleaut32 winhttp shell32 windowsapp d3d11 dxgi)
 
     add_library(InteractiveMusicRadioPlugin${suffix} SHARED ${IMR_PLUGIN_SRC})
     target_include_directories(InteractiveMusicRadioPlugin${suffix} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/extern")

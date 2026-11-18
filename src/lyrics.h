@@ -40,6 +40,13 @@ public:
 		const std::string& a_album);
 	void SetLyric(const std::vector<LrcLine>& a_lines);
 
+	// Live subtitle line (from video OCR).  While set, Tick() shows this line
+	// instead of the timed LRC, so the browser's own subtitle wins.  Callers
+	// must ClearLiveLine() when the capture goes stale so the LRC takes over.
+	void SetLiveLine(const std::string& a_line);
+	void ClearLiveLine();
+	bool HasLiveLine() const { return live_; }
+
 	// Advance the highlight.  a_position must be the *interpolated* playback
 	// position, not the last value the player reported.
 	void Tick(double a_position);
@@ -67,6 +74,7 @@ private:
 	Impl*         impl_ = nullptr;
 	bool          visible_ = false;
 	bool          locked_ = true;
+	bool          live_ = false;      // showing a video-subtitle line
 	std::string   current_;
 	std::string   next_;
 };

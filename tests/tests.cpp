@@ -5,6 +5,7 @@
 #include "../src/core.h"
 #include "../src/lrc.h"
 #include "../src/sources.h"
+#include "../src/subtitle.h"
 
 #include <cstdio>
 #include <string>
@@ -336,6 +337,59 @@ static void TestNextLine()
 	CHECK(imr::NextLineAt(lines, 3.5).empty());
 }
 
+static void TestSubtitleClean()
+{
+	// Noise lines are dropped, whitespace collapsed, real text joined.
+	CHECK(CleanOcrText({ "  歌  词  ", "♪♪♪", "第二 行" }) == "歌 词 第二 行");
+	CHECK(CleanOcrText({ "  ", "——", "|||" }).empty());
+	CHECK(CleanOcrText({}).empty());
+	CHECK(CleanOcrText({ "Hello\tworld" }) == "Hello world");
+	// CJK bytes (>= 0x80) count as letters, so a single CJK line survives.
+	CHECK(CleanOcrText({ "晴天" }) == "晴天");
+}
+
+static void TestSubtitleStabilizer()
+{
+	SubtitleStabilizer stab(2);
+	CHECK(stab.Feed("第一次").empty());       // one hit: not published yet
+	CHECK(stab.Feed("第一次") == "第一次");   // second identical hit: publish
+	CHECK(stab.Feed("第一次").empty());       // same line: keep, no new publish
+	CHECK(stab.Published() == "第一次");
+
+	CHECK(stab.Feed("误读").empty());         // new candidate, single frame
+	CHECK(stab.Feed("第二次") == "第二次");   // a different candidate wins after 2
+	CHECK(stab.Published() == "第二次");
+
+	stab.Miss();                               // a gap does not erase published
+	CHECK(stab.Published() == "第二次");
+	CHECK(stab.Feed("第二次").empty());
+
+	stab.Reset();
+	CHECK(stab.Published().empty());
+	CHECK(stab.Feed("新").empty());
+	CHECK(stab.Feed("新") == "新");
+}
+
+static void TestVideoSubConfig()
+{
+	Config c;
+	CHECK(c.videoSubtitles == true);
+	CHECK(c.videoSubIntervalMs == 400);
+	CHECK(c.videoSubCropBottomPct == 38);
+	c.ApplyKey("bVideoSubtitles", "0");
+	CHECK(c.videoSubtitles == false);
+	c.ApplyKey("iVideoSubIntervalMs", "250");
+	CHECK(c.videoSubIntervalMs == 250);
+	c.ApplyKey("iVideoSubCropBottomPct", "45");
+	CHECK(c.videoSubCropBottomPct == 45);
+}
+
+static void TestSubSourceDefaults()
+{
+	Snapshot s;
+	CHECK(s.subSource == 0);
+}
+
 int main()
 {
 	TestLinkState();
@@ -352,6 +406,10 @@ int main()
 	TestHotkeyLabels();
 	TestNormalizeTrack();
 	TestNextLine();
+	TestSubtitleClean();
+	TestSubtitleStabilizer();
+	TestVideoSubConfig();
+	TestSubSourceDefaults();
 
 	std::printf("%d passed, %d failed\n", g_pass, g_fail);
 	return g_fail == 0 ? 0 : 1;

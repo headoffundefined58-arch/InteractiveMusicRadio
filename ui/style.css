@@ -360,6 +360,12 @@ html, body {
   border: 1px solid var(--line); border-radius: 6px;
   padding: 2px 6px; white-space: nowrap;
 }
+.sub-tag {
+  font-size: 10px; color: var(--text-dim);
+  border: 1px solid var(--line); border-radius: 6px;
+  padding: 2px 6px; white-space: nowrap;
+}
+.sub-tag.video { color: #ffd479; border-color: #7a6531; }
 .calib { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-dim); }
 .calib-value { min-width: 48px; text-align: center; color: var(--teal); font-variant-numeric: tabular-nums; }
 .mini {

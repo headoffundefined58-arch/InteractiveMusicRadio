@@ -37,6 +37,7 @@
 #include <dxgi.h>
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <condition_variable>
 #include <cstring>

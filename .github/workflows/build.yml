@@ -77,15 +77,27 @@ jobs:
         shell: pwsh
         working-directory: ${{ github.workspace }}
         run: |
-          & ./IMR/build/Release/InteractiveMusicRadioTests.exe
-          if ($LASTEXITCODE -ne 0) { throw "Chinese build tests failed" }
+          & ./IMR/build/Release/InteractiveMusicRadioTests.exe 2>&1 | Tee-Object -FilePath test-zh.log
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content test-zh.log | ForEach-Object {
+              $line = ($_ -replace '%','%25' -replace '\r','')
+              Write-Host "::error::$line"
+            }
+            throw "Chinese build tests failed (exit $LASTEXITCODE)"
+          }
 
       - name: Test (English build)
         shell: pwsh
         working-directory: ${{ github.workspace }}
         run: |
-          & ./IMR/build/Release/InteractiveMusicRadioTests_en.exe
-          if ($LASTEXITCODE -ne 0) { throw "English build tests failed" }
+          & ./IMR/build/Release/InteractiveMusicRadioTests_en.exe 2>&1 | Tee-Object -FilePath test-en.log
+          if ($LASTEXITCODE -ne 0) {
+            Get-Content test-en.log | ForEach-Object {
+              $line = ($_ -replace '%','%25' -replace '\r','')
+              Write-Host "::error::$line"
+            }
+            throw "English build tests failed (exit $LASTEXITCODE)"
+          }
 
       - name: Upload DLLs
         uses: actions/upload-artifact@v4

@@ -54,7 +54,11 @@ const char* const kSodaTitles[] = { "汽水音乐", "汽水" };
 // ("Chrome"), not an executable ("chrome.exe"), and both have to classify.
 const char* const kBrowserExes[] = {
 	"chrome", "msedge", "firefox", "brave", "opera", "vivaldi",
-	"360se", "360chrome", "qqbrowser", "sogouexplorer", "liebao", "maxthon"
+	"360se", "360chrome", "qqbrowser", "sogouexplorer", "liebao", "maxthon",
+	// Standalone video/music clients that render their subtitles inside the
+	// window just like a browser tab.  Without these, WGC never finds the
+	// window when the user watches a video in an app instead of a browser.
+	"bilibili", "bili", "iqiyi", "youku", "mgtv", "kugou", "kuwo"
 };
 
 const std::array<DesktopProbe, 3> kDesktop{ {

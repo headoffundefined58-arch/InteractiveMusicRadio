@@ -43,6 +43,10 @@
     lk: true,        // lyric window locked (click-through)
     lkind: 0,        // 0 desktop / 1 web - which lyric window is active
     subsrc: 0,       // 0 none / 1 video OCR / 2 network LRC
+    vsen: 1,         // video-subtitle master toggle
+    vsavail: 0,      // OCR language pack available
+    vsactive: 0,     // capture worker running
+    subtext: "",     // freshest OCR subtitle line
     hotkey: "F10",
     bind: 0,         // 1 = recording a new hotkey
     offset: 0,       // lyric sync nudge, ms
@@ -80,6 +84,11 @@
     lyricsLockSwitch: document.getElementById("lyricsLockSwitch"),
     lyricKind: document.getElementById("lyricKind"),
     subTag: document.getElementById("subTag"),
+    videoSubSwitch: document.getElementById("videoSubSwitch"),
+    subState: document.getElementById("subState"),
+    subPreview: document.getElementById("subPreview"),
+    subPreviewTag: document.getElementById("subPreviewTag"),
+    subPreviewText: document.getElementById("subPreviewText"),
     offsetValue: document.getElementById("offsetValue"),
     offsetMinus: document.getElementById("offsetMinus"),
     offsetPlus: document.getElementById("offsetPlus"),
@@ -287,6 +296,30 @@
       : state.subsrc === 2 ? "歌词：网络" : "歌词：—";
     el.subTag.textContent = subText;
     el.subTag.classList.toggle("video", state.subsrc === 1);
+
+    // Video-subtitle engine state - a single line that always explains what
+    // the capture is doing, so a dead capture is never a mystery.
+    el.videoSubSwitch.checked = !!state.vsen;
+    var st = "";
+    var stClass = "";
+    if (!state.vsen) { st = "字幕：已关闭"; }
+    else if (!state.vsavail) { st = "字幕：缺中文 OCR"; stClass = "err"; }
+    else if (state.lkind !== 1) { st = "字幕：接入网页源后启用"; }
+    else if (!state.lyrics) { st = "字幕：开桌面歌词后启用"; }
+    else if (state.vsactive) { st = state.subsrc === 1 ? "字幕：识别中" : "字幕：等待画面"; stClass = state.subsrc === 1 ? "live" : ""; }
+    else { st = "字幕：寻找播放窗口"; }
+    el.subState.textContent = st;
+    el.subState.className = "sub-state" + (stClass ? " " + stClass : "");
+
+    // Live OCR line preview: only while a video subtitle is actually showing.
+    if (state.subsrc === 1 && state.subtext) {
+      el.subPreview.hidden = false;
+      el.subPreviewText.textContent = state.subtext;
+      el.subPreviewTag.textContent = "视频字幕";
+    } else {
+      el.subPreview.hidden = true;
+    }
+
     el.offsetValue.textContent = (state.offset >= 0 ? "+" : "") +
       (state.offset / 1000).toFixed(2) + "s";
     el.hotkeyBtn.textContent = state.bind === 1
@@ -331,7 +364,8 @@
 
   function settingsSignature() {
     return [state.lyrics ? 1 : 0, state.lk ? 1 : 0, state.lkind, state.subsrc,
-      state.bind, state.hotkey, state.offset].join("|");
+      state.vsen ? 1 : 0, state.vsavail ? 1 : 0, state.vsactive ? 1 : 0,
+      state.subtext, state.bind, state.hotkey, state.offset].join("|");
   }
 
   function render() {
@@ -373,6 +407,10 @@
     state.lk = d.lk !== 0 && d.lk !== false;
     state.lkind = d.lkind === 1 ? 1 : 0;
     state.subsrc = typeof d.subsrc === "number" ? d.subsrc : 0;
+    state.vsen = d.vsen !== 0 && d.vsen !== false;
+    state.vsavail = d.vsavail === 1 || d.vsavail === true;
+    state.vsactive = d.vsactive === 1 || d.vsactive === true;
+    state.subtext = typeof d.subtext === "string" ? d.subtext : "";
     state.bind = d.bind === 1 ? 1 : 0;
     state.hotkey = d.hotkey || "未设置";
     state.offset = typeof d.offset === "number" ? d.offset : 0;
@@ -407,6 +445,12 @@
   el.lyricsSwitch.addEventListener("change", function () {
     state.lyrics = el.lyricsSwitch.checked;
     sendSimple("lyrics", { on: state.lyrics ? 1 : 0 });
+  });
+
+  el.videoSubSwitch.addEventListener("change", function () {
+    state.vsen = el.videoSubSwitch.checked;
+    sendSimple("videosub", { on: state.vsen ? 1 : 0 });
+    renderSettings();
   });
 
   el.lyricsLockSwitch.addEventListener("change", function () {
@@ -560,6 +604,8 @@
     state.active = "qqmusic";
     state.pm = 1;
     state.hotkey = "F10";
+    state.vsen = 1;
+    state.vsavail = 1;
     render();
   }, 1500);
 

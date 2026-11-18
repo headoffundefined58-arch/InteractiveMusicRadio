@@ -126,6 +126,12 @@ struct Snapshot {
 	bool                      lyrics = false;    // our own desktop lyric window
 	std::string               lyricNow;          // current lyric line ("" = none)
 	int                       subSource = 0;     // 0 none / 1 video OCR / 2 network LRC
+	// Video-subtitle diagnostics, surfaced in the panel so a silently dead
+	// capture is impossible: the UI can always show *why* no subtitle appears.
+	bool                      videoSubEnabled = true;    // master toggle (bVideoSubtitles)
+	bool                      videoSubAvailable = false; // OCR language pack present
+	bool                      videoSubActive = false;    // worker currently capturing
+	std::string               subText;           // freshest OCR line (may equal lyricNow)
 	double                    capturedGain = 1.0;
 	int                       playMode = -1;     // PlayMode of the linked source
 

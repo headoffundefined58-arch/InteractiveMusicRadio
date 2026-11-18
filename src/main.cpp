@@ -512,6 +512,10 @@ void RefreshLyrics()
 	// -- video subtitles (web player + desktop lyrics ON) -------------------
 	// Start the capture worker once when conditions first hold; it re-targets
 	// itself if the browser window changes.  Take() is non-blocking.
+	// Diagnostics are always published so the panel can show *why* no subtitle
+	// appears (toggle off / no OCR pack / no web source / worker idle).
+	g_snap.videoSubEnabled = g_cfg.videoSubtitles;
+	g_snap.videoSubAvailable = g_videoSub.Available();
 	if (wantVideo) {
 		VideoSubConfig cfg;
 		cfg.enabled = g_cfg.videoSubtitles;
@@ -524,6 +528,7 @@ void RefreshLyrics()
 		if (g_videoSub.Take(&sub, &subAt) && !sub.empty()) {
 			g_lyrics[kind].SetLiveLine(sub);
 			g_lastVideoSubAt = subAt;
+			g_snap.subText = sub;
 		}
 		// A subtitle stays on screen for a few seconds.  If the worker stops
 		// delivering (window closed, OCR stalled), go back to the timed lyric
@@ -533,6 +538,7 @@ void RefreshLyrics()
 			g_lyrics[kind].ClearLiveLine();
 		}
 	}
+	g_snap.videoSubActive = g_videoSub.Running();
 
 	// RefreshSources() already produced the interpolated "now" position; the
 	// only extra term is the user's lyric calibration.  Tick() is a no-op while
@@ -541,7 +547,9 @@ void RefreshLyrics()
 		static_cast<double>(g_cfg.lyricOffsetMs) / 1000.0;
 	g_lyrics[kind].Tick(pos);
 	g_snap.lyricNow = g_lyrics[kind].CurrentLine();
-	g_snap.subSource = (kind == 1 && g_lyrics[kind].HasLiveLine()) ? 1 : 2;
+	const bool liveVideo = kind == 1 && g_lyrics[kind].HasLiveLine();
+	g_snap.subSource = liveVideo ? 1 : 2;
+	if (!liveVideo) g_snap.subText.clear();
 
 	// Both windows must be painted: one is hidden, but each still owns its
 	// own layered bitmap and message queue.
@@ -684,6 +692,21 @@ void ApplyCommand(const ui::Command& a_cmd)
 	} else if (verb == "lyrics") {
 		g_snap.lyrics = a_cmd.flag("on");
 		IMR_LOG_I("ui: desktop lyrics %s", g_snap.lyrics ? "ON" : "OFF");
+
+	} else if (verb == "videosub") {
+		// Master switch for browser-video subtitle capture.  Turning it off
+		// stops the worker at once and drops any live line, so the timed
+		// network lyric takes over on the next frame.
+		g_cfg.videoSubtitles = a_cmd.flag("on");
+		g_snap.videoSubEnabled = g_cfg.videoSubtitles;
+		if (!g_cfg.videoSubtitles) {
+			g_videoSub.Stop();
+			g_lyrics[1].ClearLiveLine();
+			g_snap.subText.clear();
+			g_lastVideoSubAt = -100.0;
+		}
+		SaveConfig();
+		IMR_LOG_I("ui: video subtitles %s", g_cfg.videoSubtitles ? "ON" : "OFF");
 
 	} else if (verb == "lyricslock") {
 		const int kind = ActiveKind();

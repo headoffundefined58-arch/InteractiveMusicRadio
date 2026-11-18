@@ -137,7 +137,15 @@ std::string ToJson(const Snapshot& a_s)
 	j += Esc(a_s.lyricNow);
 	j += "\",\"subsrc\":";
 	j += std::to_string(a_s.subSource);   // 0 none / 1 video OCR / 2 network LRC
-	j += ",\"active\":\"";
+	j += ",\"vsen\":";
+	j += a_s.videoSubEnabled ? "1" : "0";  // bVideoSubtitles master toggle
+	j += ",\"vsavail\":";
+	j += a_s.videoSubAvailable ? "1" : "0";  // OCR language pack present
+	j += ",\"vsactive\":";
+	j += a_s.videoSubActive ? "1" : "0";  // capture worker running
+	j += ",\"subtext\":\"";
+	j += Esc(a_s.subText);                // freshest OCR subtitle line
+	j += "\",\"active\":\"";
 	j += Esc(a_s.activeId);
 	j += "\",\"gain\":";
 	j += F2(a_s.capturedGain);

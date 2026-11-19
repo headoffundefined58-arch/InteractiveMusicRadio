@@ -125,13 +125,6 @@ struct Snapshot {
 	bool                      takeover = false;  // hold local music down
 	bool                      lyrics = false;    // our own desktop lyric window
 	std::string               lyricNow;          // current lyric line ("" = none)
-	int                       subSource = 0;     // 0 none / 1 video OCR / 2 network LRC
-	// Video-subtitle diagnostics, surfaced in the panel so a silently dead
-	// capture is impossible: the UI can always show *why* no subtitle appears.
-	bool                      videoSubEnabled = true;    // master toggle (bVideoSubtitles)
-	bool                      videoSubAvailable = false; // OCR language pack present
-	bool                      videoSubActive = false;    // worker currently capturing
-	std::string               subText;           // freshest OCR line (may equal lyricNow)
 	double                    capturedGain = 1.0;
 	int                       playMode = -1;     // PlayMode of the linked source
 
@@ -189,13 +182,6 @@ struct Config {
 	bool  fetchLyrics = true;      // look lyrics up online (best effort)
 	int   lyricFontSize = 30;
 	int   lyricOffsetMs = 0;       // manual sync nudge, milliseconds
-
-	// Video subtitles: while a WEB player is linked with desktop lyrics on, OCR
-	// the bottom strip of the browser's video for its subtitles.  Falls back to
-	// the network lyric whenever capture is unavailable or goes stale.
-	bool  videoSubtitles = true;
-	int   videoSubIntervalMs = 400;
-	int   videoSubCropBottomPct = 38;
 
 	std::string iniPath;
 	std::string pluginDir;   // SKSE\Plugins

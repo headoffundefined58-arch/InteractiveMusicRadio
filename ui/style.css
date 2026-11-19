@@ -360,39 +360,6 @@ html, body {
   border: 1px solid var(--line); border-radius: 6px;
   padding: 2px 6px; white-space: nowrap;
 }
-.sub-tag {
-  font-size: 10px; color: var(--text-dim);
-  border: 1px solid var(--line); border-radius: 6px;
-  padding: 2px 6px; white-space: nowrap;
-}
-.sub-tag.video { color: #ffd479; border-color: #7a6531; }
-/* Video-subtitle engine state: quiet by default, teal while a line is being
-   recognised, amber when it cannot run (no OCR pack / wrong source). */
-.sub-state {
-  font-size: 10px; color: var(--text-dim);
-  border: 1px solid var(--line); border-radius: 6px;
-  padding: 2px 7px; white-space: nowrap;
-}
-.sub-state.live { color: var(--teal); border-color: var(--teal-dark); }
-.sub-state.err { color: #e6a53e; border-color: #7a5c31; }
-
-/* Live OCR subtitle line, shown under the progress bar while a video
-   subtitle is actually on screen.  No blur/filter - PrismaUI is CPU-raster. */
-.sub-preview {
-  display: flex; align-items: center; gap: 8px;
-  margin-top: 9px; padding: 7px 10px;
-  border: 1px solid var(--teal-dark); border-radius: 9px;
-  background: rgba(62, 230, 180, 0.08);
-}
-.sub-preview[hidden] { display: none; }
-.sub-preview-tag {
-  flex: 0 0 auto; font-size: 10px; color: #061616;
-  background: var(--teal); border-radius: 5px; padding: 2px 6px;
-}
-.sub-preview-text {
-  font-size: 12px; color: var(--text);
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
 .calib { display: flex; align-items: center; gap: 6px; font-size: 11px; color: var(--text-dim); }
 .calib-value { min-width: 48px; text-align: center; color: var(--teal); font-variant-numeric: tabular-nums; }
 .mini {

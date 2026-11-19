@@ -4,7 +4,7 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:DEBUG>:Debug>DLL")
 
 project(
     InteractiveMusicRadio
-    VERSION 2.3.0
+    VERSION 2.5.0
     LANGUAGES CXX
 )
 
@@ -52,8 +52,6 @@ set(IMR_CORE_SRC
     src/lrc.cpp
     src/lyrics.cpp
     src/lyrics_net.cpp
-    src/subtitle_text.cpp
-    src/video_capture.cpp
     src/handshake.cpp
     src/ui.cpp
 )
@@ -75,10 +73,9 @@ function(imr_add_build suffix zh output_name)
     # ole32/oleaut32 : Core Audio COM (no UI Automation in 2.2)
     # winhttp        : lyric look-up (the only networked code)
     # shell32        : opening a music site in the system browser
-    # windowsapp     : C++/WinRT activation (SMTC + Graphics Capture + OCR)
-    # d3d11/dxgi     : WGC frame-pool device + staging copy for subtitles
+    # windowsapp     : C++/WinRT activation for the media session (SMTC)
     target_link_libraries(InteractiveMusicRadioCore${suffix} PUBLIC
-        ole32 oleaut32 winhttp shell32 windowsapp d3d11 dxgi)
+        ole32 oleaut32 winhttp shell32 windowsapp)
 
     add_library(InteractiveMusicRadioPlugin${suffix} SHARED ${IMR_PLUGIN_SRC})
     target_include_directories(InteractiveMusicRadioPlugin${suffix} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/extern")

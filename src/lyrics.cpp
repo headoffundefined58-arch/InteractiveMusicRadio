@@ -133,7 +133,6 @@ struct LyricsOverlay::Impl {
 	int                  kind = 0;
 	std::string          title;
 	std::string          sub;
-	std::string          liveLine;   // video subtitle, overrides LRC when non-empty
 	std::vector<LrcLine> lines;
 	bool                 dirty = true;
 	bool                 shown = false;
@@ -197,32 +196,8 @@ void LyricsOverlay::Destroy()
 	delete impl_;
 	impl_ = nullptr;
 	visible_ = false;
-	live_ = false;
 	current_.clear();
 	next_.clear();
-}
-
-void LyricsOverlay::SetLiveLine(const std::string& a_line)
-{
-	if (!impl_) return;
-	if (impl_->liveLine == a_line && live_) return;
-	impl_->liveLine = a_line;
-	live_ = !a_line.empty();
-	impl_->dirty = true;
-	if (live_) {
-		// A video subtitle is a single line; no "next" to预告.
-		current_ = a_line;
-		next_.clear();
-	} else {
-		// Back to the timed lyric: recompute from where we are now.
-		Tick(impl_->pos);
-	}
-}
-
-void LyricsOverlay::ClearLiveLine()
-{
-	if (!impl_ || !live_) return;
-	SetLiveLine({});
 }
 
 void LyricsOverlay::SetTrack(const std::string& a_title, const std::string& a_artist,
@@ -237,8 +212,6 @@ void LyricsOverlay::SetTrack(const std::string& a_title, const std::string& a_ar
 	impl_->title = a_title;
 	impl_->sub = sub;
 	impl_->lines.clear();
-	impl_->liveLine.clear();
-	live_ = false;
 	impl_->dirty = true;
 	current_.clear();
 	next_.clear();
@@ -259,8 +232,6 @@ void LyricsOverlay::Tick(double a_position)
 {
 	if (!impl_) return;
 	impl_->pos = a_position;
-	// While a video subtitle is showing, the timed lyric must not overwrite it.
-	if (live_) return;
 	const std::string line = LineAt(impl_->lines, a_position);
 	const std::string next = NextLineAt(impl_->lines, a_position);
 	if (line == current_ && next == next_) return;

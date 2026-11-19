@@ -43,7 +43,6 @@
 #include "platform.h"
 #include "session.h"
 #include "sources.h"
-#include "subtitle.h"
 #include "ui.h"
 
 namespace fs = std::filesystem;
@@ -57,7 +56,13 @@ AudioSessionController g_sessions;
 CmsHandshake           g_handshake;
 NowPlaying             g_media;
 LyricsOverlay          g_lyrics[2];   // [0] desktop player, [1] web player
-VideoSubtitle          g_videoSub;    // browser video -> OCR subtitle (web only)
+
+// The launcher binding is written on the engine thread (hotkey recorder /
+// reset) but read on the game thread (HotkeySink::ProcessEvent, InstallHotkey).
+// g_cfg.hotkeyKey/hotkeyMods stay as the *persisted* values (Load/Save), while
+// these atomics are the lock-free runtime truth for every key comparison.
+std::atomic<int> g_hotkeyKey{ 68 };    // F10 scan code
+std::atomic<int> g_hotkeyMods{ 0 };    // 1 Ctrl | 2 Shift | 4 Alt
 Snapshot               g_snap;
 
 std::thread       g_engine;
@@ -76,7 +81,6 @@ std::unordered_map<std::string, int>            g_modeOf;    // source id -> rep
 // desktop app's lyric, and vice versa.
 struct LyricDeck {
 	std::mutex   mtx;
-	std::string  query;
 	std::string  lrc;
 	std::string  trackKey;
 	bool         ready = false;
@@ -330,7 +334,8 @@ void RefreshSources()
 	g_snap.playMode = pm;
 	g_snap.panelX = g_cfg.panelX;
 	g_snap.panelY = g_cfg.panelY;
-	g_snap.hotkeyLabel = HotkeyLabel(g_cfg.hotkeyKey, g_cfg.hotkeyMods);
+	// hotkeyLabel is updated only when the binding changes (ApplyCommand /
+	// StartAll), not every 16 ms frame - it used to rebuild a string 60x/s.
 	g_snap.lyricOffsetMs = g_cfg.lyricOffsetMs;
 	const int kind = ActiveKind();
 	g_snap.lyricsKind = kind;
@@ -390,15 +395,24 @@ void EnforceLocalMode(double a_now)
 	if (s->track.position < s->track.duration - 0.4) return;
 	if (a_now - g_localMode.lastAction < 3.0) return;
 
-	const std::string key = s->track.title + "|" + s->track.artist + "|" +
-		s->track.album;
-	if (key == g_localMode.trackKey) return;
 	const auto it = g_aumidOf.find(g_snap.activeId);
 	if (it == g_aumidOf.end()) return;
 
-	g_localMode.trackKey = key;
+	const bool repeatOne = g_localMode.mode == PlayMode::RepeatOne;
+	if (!repeatOne) {
+		// next / shuffle change the track, so keying on the track identity
+		// prevents a single end-of-track from firing twice.
+		const std::string key = s->track.title + "|" + s->track.artist + "|" +
+			s->track.album;
+		if (key == g_localMode.trackKey) return;
+		g_localMode.trackKey = key;
+	}
+	// RepeatOne replays the *same* track in place: its key never changes, so
+	// the identity check above must be skipped or the loop dies after the
+	// first restart.  Re-arming is instead implicit - after Seek(0) the
+	// position drops below duration-0.4 and must climb back to the end.
 	g_localMode.lastAction = a_now;
-	if (g_localMode.mode == PlayMode::RepeatOne) {
+	if (repeatOne) {
 		if (g_media.Seek(it->second, 0.0)) {
 			g_seekPos = 0.0;
 			g_seekAt = a_now;
@@ -416,7 +430,8 @@ void EnforceLocalMode(double a_now)
 
 // --------------------------------------------------------------- lyrics ------
 
-void RequestLyrics(int a_kind, const std::string& a_title, const std::string& a_artist)
+void RequestLyrics(int a_kind, const std::string& a_trackKey,
+	const std::string& a_title, const std::string& a_artist)
 {
 	if (!g_cfg.fetchLyrics || a_title.empty()) return;
 	std::string song;
@@ -425,23 +440,26 @@ void RequestLyrics(int a_kind, const std::string& a_title, const std::string& a_
 	const std::string query = LyricsQuery(song, singer);
 	if (query.empty()) return;
 
+	// Dedup lives solely in RefreshLyrics' trackKey check.  The old code also
+	// deduped here on the album-less query, so a song reappearing on a different
+	// album (new trackKey, same query) was silently skipped and its lyric never
+	// loaded.  Every call reaching here is a genuinely new track: clear + fetch.
 	LyricDeck& deck = g_decks[a_kind];
 	{
 		std::lock_guard<std::mutex> lk(deck.mtx);
-		if (query == deck.query) return;
-		deck.query = query;
 		deck.lrc.clear();
 		deck.ready = false;
 	}
 
 	// Detached on purpose: a look-up can take seconds and the engine loop has
-	// a fast lyric tick to keep on schedule.
-	std::thread([a_kind, query, song, singer] {
+	// a fast lyric tick to keep on schedule.  Only a still-current trackKey may
+	// publish its result, so a slow old look-up cannot overwrite a newer lyric.
+	std::thread([a_kind, a_trackKey, song, singer] {
 		std::string lrc;
 		FetchLyrics(song, singer, &lrc);
 		LyricDeck& d = g_decks[a_kind];
 		std::lock_guard<std::mutex> lk(d.mtx);
-		if (d.query != query) return;   // a newer track won
+		if (d.trackKey != a_trackKey) return;   // a newer track won
 		d.lrc = std::move(lrc);
 		d.ready = true;
 	}).detach();
@@ -457,11 +475,6 @@ bool TakeLyric(int a_kind, std::string* a_lrc)
 	return true;
 }
 
-// Video-subtitle capture is only meaningful for an active web player whose
-// desktop lyric switch is ON.  Everything else (desktop source, lyrics closed,
-// paused / no media) stops the worker so an idle radio costs nothing.
-double g_lastVideoSubAt = -100.0;   // stamp of the last accepted OCR line
-
 void RefreshLyrics()
 {
 	const MediaSource* linked = ActiveSource();
@@ -473,22 +486,8 @@ void RefreshLyrics()
 		g_lyrics[k].SetVisible(g_snap.lyrics && k == kind &&
 			linked && linked->track.hasMedia);
 	}
-
-	const bool wantVideo = g_cfg.enabled && g_cfg.videoSubtitles &&
-		g_snap.lyrics && kind == 1 && linked && linked->track.hasMedia &&
-		linked->track.playing && g_videoSub.Available();
-
-	if (!wantVideo) {
-		if (g_videoSub.Running()) {
-			g_videoSub.Stop();
-			g_lyrics[1].ClearLiveLine();
-			g_lastVideoSubAt = -100.0;
-		}
-	}
-
 	if (!linked || !linked->track.hasMedia) {
 		g_snap.lyricNow.clear();
-		g_snap.subSource = 0;
 		for (auto& l : g_lyrics) l.Pump();
 		return;
 	}
@@ -500,7 +499,7 @@ void RefreshLyrics()
 		deck.trackKey = trackKey;
 		g_lyrics[kind].SetTrack(linked->track.title, linked->track.artist,
 			linked->track.album);
-		RequestLyrics(kind, linked->track.title, linked->track.artist);
+		RequestLyrics(kind, trackKey, linked->track.title, linked->track.artist);
 	}
 	std::string lrc;
 	if (TakeLyric(kind, &lrc)) {
@@ -509,48 +508,12 @@ void RefreshLyrics()
 			linked->track.title.c_str(), linked->track.artist.c_str(), lrc.size());
 	}
 
-	// -- video subtitles (web player + desktop lyrics ON) -------------------
-	// Start the capture worker once when conditions first hold; it re-targets
-	// itself if the browser window changes.  Take() is non-blocking.
-	// Diagnostics are always published so the panel can show *why* no subtitle
-	// appears (toggle off / no OCR pack / no web source / worker idle).
-	g_snap.videoSubEnabled = g_cfg.videoSubtitles;
-	g_snap.videoSubAvailable = g_videoSub.Available();
-	if (wantVideo) {
-		VideoSubConfig cfg;
-		cfg.enabled = g_cfg.videoSubtitles;
-		cfg.intervalMs = g_cfg.videoSubIntervalMs;
-		cfg.cropBottomPct = g_cfg.videoSubCropBottomPct;
-		g_videoSub.Start(cfg, linked->track.title);
-
-		std::string sub;
-		double subAt = 0.0;
-		if (g_videoSub.Take(&sub, &subAt) && !sub.empty()) {
-			g_lyrics[kind].SetLiveLine(sub);
-			g_lastVideoSubAt = subAt;
-			g_snap.subText = sub;
-		}
-		// A subtitle stays on screen for a few seconds.  If the worker stops
-		// delivering (window closed, OCR stalled), go back to the timed lyric
-		// instead of freezing the last recognised line forever.
-		if (g_lyrics[kind].HasLiveLine() &&
-			NowSeconds() - g_lastVideoSubAt > 3.0) {
-			g_lyrics[kind].ClearLiveLine();
-		}
-	}
-	g_snap.videoSubActive = g_videoSub.Running();
-
 	// RefreshSources() already produced the interpolated "now" position; the
-	// only extra term is the user's lyric calibration.  Tick() is a no-op while
-	// a live video subtitle is showing, so it cannot overwrite it.
+	// only extra term is the user's lyric calibration.
 	const double pos = linked->track.position +
 		static_cast<double>(g_cfg.lyricOffsetMs) / 1000.0;
 	g_lyrics[kind].Tick(pos);
 	g_snap.lyricNow = g_lyrics[kind].CurrentLine();
-	const bool liveVideo = kind == 1 && g_lyrics[kind].HasLiveLine();
-	g_snap.subSource = liveVideo ? 1 : 2;
-	if (!liveVideo) g_snap.subText.clear();
-
 	// Both windows must be painted: one is hidden, but each still owns its
 	// own layered bitmap and message queue.
 	for (auto& l : g_lyrics) l.Pump();
@@ -593,6 +556,7 @@ void ApplyCommand(const ui::Command& a_cmd)
 		g_modeOverride.active = false;
 		g_pendingMode.active = false;
 		g_localMode.active = false;
+		g_seekActive = false;   // stale anchor must not leak into the next link
 		IMR_LOG_I("ui: link cleared (local music released)");
 
 	} else if (verb == "transport") {
@@ -627,17 +591,15 @@ void ApplyCommand(const ui::Command& a_cmd)
 			return;
 		}
 
-		// Anchor both the next frames and the immediate push at the chosen
-		// point, so the bar cannot bounce back to the stale SMTC timeline.
+		// Anchor the immediate push and the short override window at the chosen
+		// point.  Only the *view* (g_snap.sources) is seeded here.  Never seed
+		// g_mediaCache: EffectivePosition() compares the SMTC-derived position
+		// against our guess, and seeding the cache makes both sides identical on
+		// the very next frame - so the 3 s guard cancelled itself and the bar
+		// snapped back as soon as the player reported its stale timeline.
 		g_seekPos = pos;
 		g_seekAt = NowSeconds();
 		g_seekActive = true;
-		for (auto& m : g_mediaCache) {
-			if (m.aumid == it->second) {
-				m.position = pos;
-				m.positionAt = g_seekAt;
-			}
-		}
 		if (linked) {
 			linked->track.position = pos;
 			linked->track.positionAt = g_seekAt;
@@ -693,21 +655,6 @@ void ApplyCommand(const ui::Command& a_cmd)
 		g_snap.lyrics = a_cmd.flag("on");
 		IMR_LOG_I("ui: desktop lyrics %s", g_snap.lyrics ? "ON" : "OFF");
 
-	} else if (verb == "videosub") {
-		// Master switch for browser-video subtitle capture.  Turning it off
-		// stops the worker at once and drops any live line, so the timed
-		// network lyric takes over on the next frame.
-		g_cfg.videoSubtitles = a_cmd.flag("on");
-		g_snap.videoSubEnabled = g_cfg.videoSubtitles;
-		if (!g_cfg.videoSubtitles) {
-			g_videoSub.Stop();
-			g_lyrics[1].ClearLiveLine();
-			g_snap.subText.clear();
-			g_lastVideoSubAt = -100.0;
-		}
-		SaveConfig();
-		IMR_LOG_I("ui: video subtitles %s", g_cfg.videoSubtitles ? "ON" : "OFF");
-
 	} else if (verb == "lyricslock") {
 		const int kind = ActiveKind();
 		const bool locked = a_cmd.flag("on");
@@ -746,9 +693,11 @@ void ApplyCommand(const ui::Command& a_cmd)
 		} else if (act == "reset") {
 			g_cfg.hotkeyKey = 68;
 			g_cfg.hotkeyMods = 0;
+			g_hotkeyKey.store(68, std::memory_order_release);
+			g_hotkeyMods.store(0, std::memory_order_release);
 			g_capturing.store(false, std::memory_order_release);
 			g_snap.bindState = 0;
-			g_snap.hotkeyLabel = HotkeyLabel(g_cfg.hotkeyKey, g_cfg.hotkeyMods);
+			g_snap.hotkeyLabel = HotkeyLabel(68, 0);
 			SaveConfig();
 			IMR_LOG_I("hotkey: reset to F10");
 		} else if (act == "cancel") {
@@ -838,8 +787,10 @@ void PollLauncher()
 			} else {
 				g_cfg.hotkeyKey = sc;
 				g_cfg.hotkeyMods = CurrentMods();
+				g_hotkeyKey.store(sc, std::memory_order_release);
+				g_hotkeyMods.store(g_cfg.hotkeyMods, std::memory_order_release);
 				SaveConfig();
-				g_snap.hotkeyLabel = HotkeyLabel(g_cfg.hotkeyKey, g_cfg.hotkeyMods);
+				g_snap.hotkeyLabel = HotkeyLabel(sc, g_cfg.hotkeyMods);
 				IMR_LOG_I("hotkey: bound to %s", g_snap.hotkeyLabel.c_str());
 			}
 			g_capturing.store(false, std::memory_order_release);
@@ -854,14 +805,16 @@ void PollLauncher()
 	if (esc && !g_escPrev && ui::Shown()) ui::Show(false);
 	g_escPrev = esc;
 
-	if (g_menuBlocked.load(std::memory_order_acquire) || g_cfg.hotkeyKey <= 0) {
+	const int hkKey = g_hotkeyKey.load(std::memory_order_acquire);
+	const int hkMods = g_hotkeyMods.load(std::memory_order_acquire);
+	if (g_menuBlocked.load(std::memory_order_acquire) || hkKey <= 0) {
 		g_hotPrev = false;
 		return;
 	}
-	const UINT vk = (g_cfg.hotkeyKey > 0 && g_cfg.hotkeyKey < 256)
-		? kVkOfScan[static_cast<std::size_t>(g_cfg.hotkeyKey)] : 0;
+	const UINT vk = (hkKey > 0 && hkKey < 256)
+		? kVkOfScan[static_cast<std::size_t>(hkKey)] : 0;
 	const bool down = vk && (GetAsyncKeyState(static_cast<int>(vk)) & 0x8000) != 0;
-	const bool match = down && CurrentMods() == g_cfg.hotkeyMods;
+	const bool match = down && CurrentMods() == hkMods;
 	if (match && !g_hotPrev) TryToggle();
 	g_hotPrev = match;
 }
@@ -884,15 +837,6 @@ void EngineLoop()
 		IMR_LOG_I("OS media session (SMTC) ready");
 	} else {
 		IMR_LOG_W("media session unavailable: %s - transport control is off", err.c_str());
-	}
-	// NowPlaying::Init has initialised WinRT on this thread; probe OCR here.
-	{
-		std::string subErr;
-		if (!g_videoSub.Init(&subErr)) {
-			IMR_LOG_W("video subtitles disabled: %s", subErr.c_str());
-		} else if (g_cfg.videoSubtitles) {
-			IMR_LOG_I("video subtitles ready (web player + desktop lyrics -> OCR)");
-		}
 	}
 	if (g_sessions.Init(&err)) {
 		IMR_LOG_I("audio session controller ready");
@@ -983,8 +927,9 @@ public:
 				continue;
 			}
 			if (g_menuBlocked.load(std::memory_order_acquire)) continue;
-			if (g_cfg.hotkeyKey > 0 && key == static_cast<std::uint32_t>(g_cfg.hotkeyKey) &&
-				CurrentMods() == g_cfg.hotkeyMods) {
+			const int hkKey = g_hotkeyKey.load(std::memory_order_acquire);
+			if (hkKey > 0 && key == static_cast<std::uint32_t>(hkKey) &&
+				CurrentMods() == g_hotkeyMods.load(std::memory_order_acquire)) {
 				TryToggle();
 			}
 		}
@@ -1002,7 +947,8 @@ void InstallHotkey()
 			mgr->AddEventSink(&g_hotkey);
 			g_hotkeyInstalled = true;
 			IMR_LOG_I("hotkey: %s toggles the radio (change it in the panel)",
-				HotkeyLabel(g_cfg.hotkeyKey, g_cfg.hotkeyMods).c_str());
+				HotkeyLabel(g_hotkeyKey.load(std::memory_order_acquire),
+					g_hotkeyMods.load(std::memory_order_acquire)).c_str());
 		}
 	}
 }
@@ -1031,7 +977,7 @@ void StartAll()
 	const std::string logPath = (logDir / "InteractiveMusicRadio.log").string();
 	LogOpen(logPath);
 
-	IMR_LOG_I("InteractiveMusicRadio 2.3.0  (music apps / music sites + video subtitles)");
+	IMR_LOG_I("InteractiveMusicRadio 2.5.0  (music apps / music sites)");
 	IMR_LOG_I("data dir:   %s", g_cfg.dataDir.c_str());
 	IMR_LOG_I("plugin dir: %s", g_cfg.pluginDir.c_str());
 	IMR_LOG_I("log file:   %s", logPath.c_str());
@@ -1044,7 +990,11 @@ void StartAll()
 		IMR_LOG_W("config not found (%s), using defaults", ini.string().c_str());
 	}
 	SetVerbose(g_cfg.verbose);
-	IMR_LOG_I("hotkey: %s", HotkeyLabel(g_cfg.hotkeyKey, g_cfg.hotkeyMods).c_str());
+	// Publish the loaded binding to the atomics before any thread can read it.
+	g_hotkeyKey.store(g_cfg.hotkeyKey, std::memory_order_release);
+	g_hotkeyMods.store(g_cfg.hotkeyMods, std::memory_order_release);
+	IMR_LOG_I("hotkey: %s", HotkeyLabel(g_hotkeyKey.load(std::memory_order_acquire),
+		g_hotkeyMods.load(std::memory_order_acquire)).c_str());
 
 	std::string err;
 	if (g_handshake.Init(&err)) {
@@ -1083,7 +1033,6 @@ void StopAll()
 	g_run.store(false, std::memory_order_release);
 	WakeEngine();
 	if (g_engine.joinable()) g_engine.join();
-	g_videoSub.Stop();   // join the OCR worker before WinRT teardown
 
 	RemoveHotkey();
 	ui::Detach();
@@ -1120,7 +1069,7 @@ SKSEPluginLoad(const SKSE::LoadInterface* a_skse)
 }
 
 SKSEPluginInfo(
-	.Version = { 2, 3, 0, 0 },
+	.Version = { 2, 5, 0, 0 },
 	.Name = "InteractiveMusicRadio",
 	.Author = "Icarus",
 	.SupportEmail = "",
